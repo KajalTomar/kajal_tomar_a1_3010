@@ -6,7 +6,7 @@ import select
 import queue
 
 HOST = 'grouse.cs.umanitoba.ca'                 
-CLIENT_PORT = 8098              # Arbitrary non-privileged port
+CLIENT_PORT = 8099              # Arbitrary non-privileged port
 WORKER_PORT = 8784
 print("listening on interface " + HOST)
 
@@ -36,47 +36,20 @@ def main():
 	
 	while True:
 		try:
-#			print('waiting for input')
+			# print('waiting for input')
 			readable, writeable, exceptions = select.select(
 				inputs + myClients,
 				outputs,
 				inputs,
 				5
 				)
-			#		print('released from block')
+			# print('released from block')
 
 			for s in readable:
 				if s is serverSocket:
-					dealWithServerSocket(s)
-# new client
-#				connection, client_address = serverSocket.accept()
-#					print('Adding client ', client_address)
-#					connection.setblocking(0)
-#					myClients.append(connection)
-					# Give the connection a queue for data we want to send
+					dealWithServerSocket(s) # new client
 				elif s in myClients:
-					# read 
-					data = s.recv(1024)
-					if data:
-						try:
-							data = data.decode('utf-8')
-							commandTypeResult, resultID = resolveClientCommand(data) # was a new job command	
-							if(commandTypeResult == 0 and resultID >= 0):
-								print('> JOB '+myJobs[resultID][0]+'\n<')
-								s.send((str(resultID)).encode('utf-8'))
-							elif(commandTypeResult == 1 and resultID >= 0 and resultID < len(myJobs)):
-								toSend = 'job '+ str(resultID) + ' is in state '+myJobs[resultID][1]+'\n'
-								print('> STATUS ' + str(resultID) +'\n<')
-								s.send((toSend).encode('utf-8'))
-						except UnicodeDecodeError:
-								s.close()
-								myClients.remove(s)
-					else:
-						myClients.remove(s)
-					
-				#print('connection from: ')
-				#print(client_address)
-
+					dealWithClients(s)	
 		except socket.timeout as e:
 			#print('timeout')
 			pass
@@ -95,6 +68,26 @@ def dealWithServerSocket(s):
 	print('Adding client ', client_address)
 	connection.setblocking(0)
 	myClients.append(connection)
+
+def dealWithClients(s):	
+	# read 
+	data = s.recv(1024)
+	if data:
+		try:
+			data = data.decode('utf-8')
+			commandTypeResult, resultID = resolveClientCommand(data) # was a new job command	
+			if(commandTypeResult == 0 and resultID >= 0):
+				print('> JOB '+myJobs[resultID][0]+'\n<')
+				s.send((str(resultID)).encode('utf-8'))
+			elif(commandTypeResult == 1 and resultID >= 0 and resultID < len(myJobs)):
+				toSend = 'job '+ str(resultID) + ' is in state '+myJobs[resultID][1]+'\n'
+				print('> STATUS ' + str(resultID) +'\n<')
+				s.send((toSend).encode('utf-8'))
+		except UnicodeDecodeError:
+			s.close()
+			myClients.remove(s)
+	else:
+		myClients.remove(s)
 
 def resolveClientCommand(theCommand):
 	global totalJobs
@@ -122,7 +115,10 @@ def resolveClientCommand(theCommand):
 			#print('JOB received'+data.decode('UTF-8'))
 		elif(command.lower() == 'status' and len(theData) >= 2):
 			commandType = 1
-			returnID = int(theData[1]) 
+			try:
+				returnID = int(theData[1])
+			except ValueError:
+				returnID = -1
 
 	return (commandType, returnID)
 
