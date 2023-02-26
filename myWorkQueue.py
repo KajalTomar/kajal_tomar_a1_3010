@@ -26,24 +26,18 @@ workerSocket.listen()
 inputs = [ serverSocket , workerSocket ] # not transient
 outputs = []
 
-message =  ['2','3','4','5']
-# outgoing message queues (socket:Queue)
-toDoJobsQueue = {}
 jobsToAdd = []
 
 myClients = []
 myWorkers = []
 
-myJobs = [] # will be an array [jobmessage, jobstatus]
+myJobs = [] # will be an array [jobID, jobmessage, jobstatus]
 totalJobs = 0
-i = 0
+
 def main():
 	global i
 	while True:
-#		print(myJobs)
 		try:
-
-			# print('waiting for input')
 			readable, writeable, exceptions = select.select(
 				inputs + myClients + myWorkers,
 				outputs,
@@ -61,25 +55,7 @@ def main():
 				elif s in myWorkers:
 					dealWithWorker(s)
 			
-#			for s in writeable:
-#				if(len(jobsToAdd) > 0):
-#					toDoJobsQueue[s].put((jobsToAdd.pop(0)).encode('utf-8'))
-			
-#			for s in writeable:
-#				if s in myWorkers and i < 4:
-#					s.send((message[i]).encode('utf-8'))
-#					i = i+1
-#	try:
-#						nextJob = toDoJobsQueue[s].get_nowait()
-#3	s.send(nextJob)
-#					except Empty:
-#						pass
-#						#nextJob = ('nothing').encode('utf-8')
-#					else:
-#						s.send(nextJob)
-				
 		except socket.timeout as e:
-			#print('timeout')
 			pass
 		except KeyboardInterrupt:
 			print("RIP")
@@ -100,39 +76,53 @@ def dealWithWorkerSocket(s):
 	connection.setblocking(0)
 	myWorkers.append(connection)
 	# give the connection a queue for the data we want to send
-	toDoJobsQueue[connection] = Queue()
 
 def dealWithWorker(s):
-	data = s.recv(1024)
-	if data:
-		try:
-			data = data.decode('utf-8')
-			data = data.strip()
-			# readable client has data	
-			# 'done' or 'ready'
-			print('message: '+data+' >> from %s' % (s.getpeername(),))
+	try:
+		data = s.recv(1024)
+		if data:
+			try:
+				data = data.decode('utf-8')
+				data = data.strip()
 			
-			if data == 'ready':
-				print('message: '+data+' >> from %s' % (s.getpeername(),))
-				try:
-					if(len(jobsToAdd) > 0):
-						nextJob = (jobsToAdd.pop(0)).encode('utf-8')
+				# 'done' or 'ready'
+				if data == 'ready':
+					print('message: '+data+' >> from %s' % (s.getpeername(),))
+					try:
+						if(len(jobsToAdd) > 0):
+							nextJob = (jobsToAdd.pop(0)).encode('utf-8')
+							nextJobId = int((nextJob.split())[0])
+							myJobs[nextJobId][2] = 'IN PROGRESS'
+						else:	
+							nextJob = ('nothing').encode('utf-8')
 						s.send(nextJob)
-				except Empty:
+					except Exception as e:
+						print('Something went wrong while sending worker %s a job' % (s.getpeername(),))
+						print(e)
 						pass
-						#nextJob = ('nothing').encode('utf-8')
-		except UnicodeDecodeError:
+				elif len(data) >= 2:
+					print('message recieved: '+data)
+					splitData = data.split()
+					print('jobid = '+ splitData[0])
+					jobId = int(splitData[0])
+					jobStatus = splitData[1].lower()
+					print('status: '+jobStatus)
+					if(jobStatus == 'completed' and jobId < len(myJobs) and jobId >= 0):
+						myJobs[jobId][2] = 'COMPLETED'
+						print('job' + str(jobId) +'completed')
+			except UnicodeDecodeError:
+				s.close()
+				if s in myWorkers:
+					myWorkers.remove(s)
+		else:
 			s.close()
-			myWorkers.remove(s)
-			del toDoJobsQueue[s]
-	else:
-##/print('removing worker' + s.getpeername())
+			if s in myWorkers:
+				myWorkers.remove(s)
+	except ConnectionResetError:
+		print('worker disconnected, removing it from myWorkers')
 		s.close()
-#		if s in inputs:
-#			inputs.remove(s)
 		if s in myWorkers:
 			myWorkers.remove(s)
-		del toDoJobsQueue[s]
 
 def dealWithServerSocket(s):
 	# new client
@@ -144,29 +134,35 @@ def dealWithServerSocket(s):
 def dealWithClients(s):
 	global jobsToAdd
 
-	# read 
-	data = s.recv(1024)
-	if data:
-		try:
-			data = data.decode('utf-8')
-			commandTypeResult, resultID = resolveClientCommand(data) # was a new job command	
-			if(commandTypeResult == 0 and resultID >= 0):
-				print('> JOB '+myJobs[resultID][1]+'\n<')
-				s.send((str(resultID)).encode('utf-8'))
+	# read
+	try:
+		data = s.recv(1024)
+		if data:
+			try:
+				data = data.decode('utf-8')
+				commandTypeResult, resultID = resolveClientCommand(data) # was a new job command	
+				if(commandTypeResult == 0 and resultID >= 0):
+					print('> JOB '+myJobs[resultID][1]+'\n<')
+					s.send((str(resultID)).encode('utf-8'))
 				
-				# add the job to the queue
-				thisJob = str(resultID) + ' ' + myJobs[resultID][1]
-				jobsToAdd.append(thisJob)
-			elif(commandTypeResult == 1 and resultID >= 0 and resultID < len(myJobs)):
-				toSend = 'job '+ str(resultID) + ' is in state '+myJobs[resultID][2]+'\n'
-				print('> STATUS ' + str(resultID) +'\n<')
-				s.send((toSend).encode('utf-8'))
-		except UnicodeDecodeError:
-			s.close()
+					# add the job to the queue
+					thisJob = str(resultID) + ' ' + myJobs[resultID][1]
+					jobsToAdd.append(thisJob)
+				elif(commandTypeResult == 1 and resultID >= 0 and resultID < len(myJobs)):
+					toSend = 'job '+ str(resultID) + ' is in state '+myJobs[resultID][2]+'\n'
+					print('> STATUS ' + str(resultID) +'\n<')
+					s.send((toSend).encode('utf-8'))
+			except UnicodeDecodeError:
+				s.close()
+				if s in myClients:
+					myClients.remove(s)
+		else:
 			myClients.remove(s)
-	else:
-#	print('removing client' % (s.getpeername(),))
-		myClients.remove(s)
+	except ConnectionResetError:
+		print('client disconnected, removing it from myClients')
+		s.close()
+		if s in myClients:
+			myClients.remove(s)
 
 def resolveClientCommand(theCommand):
 	global totalJobs
@@ -190,9 +186,6 @@ def resolveClientCommand(theCommand):
 			
 			print(myJobs)
 			totalJobs+=1
-			
-			#returnData = myJobs
-			#print('JOB received'+data.decode('UTF-8'))
 		elif(command.lower() == 'status' and len(theData) >= 2):
 			commandType = 1
 			try:
