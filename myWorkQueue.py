@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import errno
 import socket
 import sys
 import select
@@ -11,17 +12,47 @@ CLIENT_PORT = 8099              # Arbitrary non-privileged port
 WORKER_PORT = 8666
 print("listening on interface " + HOST)
 
+if(len(sys.argv) < 3):
+	print('Please use the correct command: python3 myQueue.py  [clientPort] [workerPort]\nEnd of processing.')
+	sys.exit(0)
+else:
+	clientPortArg = int(sys.argv[1])
+	workerPortArg= int(sys.argv[2])
+	if((1024 <= clientPortArg <= 65535) and (1024 <= workerPortArg <= 65535) and workerPortArg != clientPortArg):
+		CLIENT_PORT = clientPortArg
+		WORKER_PORT = workerPortArg
+	else:
+		print(sys.argv)
+		print('Try again, port numbers must be different and must be in range [1024 - 65535].\nEnd of processing.')
+		sys.exit(0)
+	print(sys.argv)
+
 serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 serverSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-serverSocket.bind((HOST, CLIENT_PORT))
+try:
+	serverSocket.bind((HOST, CLIENT_PORT))
+except socket.error as e:
+	serverSocket.bind((HOST,0))
+	if e.errno == errno.EADDRINUSE:
+		print("Port "+str(CLIENT_PORT)+" is already in use.")
+	CLIENT_PORT = serverSocket.getsockname()[1]
+	print('Using port '+str(CLIENT_PORT)+ ' for the clients.\n')
 serverSocket.setblocking(0);
 serverSocket.listen()
 
 workerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 workerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-workerSocket.bind((HOST, WORKER_PORT))
-workerSocket.setblocking(0);
+try:
+	workerSocket.bind((HOST, WORKER_PORT))
+except socket.error as e:
+	workerSocket.bind((HOST,0))
+	if e.errno == errno.EADDRINUSE:
+		print("Port "+str(WORKER_PORT)+" is already in use.")
+	WORKER_PORT = workerSocket.getsockname()[1]
+	print('Using port '+str(WORKER_PORT)+ ' for the workers.\n')
+workerSocket.setblocking(0);    
 workerSocket.listen()
+
 
 inputs = [ serverSocket , workerSocket ] # not transient
 outputs = []
@@ -143,7 +174,7 @@ def dealWithClients(s):
 				commandTypeResult, resultID = resolveClientCommand(data) # was a new job command	
 				if(commandTypeResult == 0 and resultID >= 0):
 					print('> JOB '+myJobs[resultID][1]+'\n<')
-					s.send((str(resultID)).encode('utf-8'))
+					s.send((str(resultID)+'\n').encode('utf-8'))
 				
 					# add the job to the queue
 					thisJob = str(resultID) + ' ' + myJobs[resultID][1]
