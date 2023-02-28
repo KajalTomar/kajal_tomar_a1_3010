@@ -7,36 +7,44 @@ import select
 from queue import Queue, Empty
 
 
-HOST = 'grouse.cs.umanitoba.ca'                 
-CLIENT_PORT = 8099              # Arbitrary non-privileged port
-WORKER_PORT = 8666
+HOST = ''                 
+print(socket.gethostname())
+CLIENT_PORT = 0            
+WORKER_PORT = 0
 print("listening on interface " + HOST)
+
+
+def bindToRandomPort(s):
+	result = -1
+
+	while result != 0:
+		try:
+			result = s.bind((HOST,0))
+			return s.getsockname()[1]
+		except socket.error as e:
+			pass
 
 if(len(sys.argv) < 3):
 	print('Please use the correct command: python3 myQueue.py  [clientPort] [workerPort]\nEnd of processing.')
 	sys.exit(0)
 else:
-	clientPortArg = int(sys.argv[1])
-	workerPortArg= int(sys.argv[2])
+	clientPortArg = int(sys.argv[1].strip())
+	workerPortArg= int(sys.argv[2].strip())
 	if((1024 <= clientPortArg <= 65535) and (1024 <= workerPortArg <= 65535) and workerPortArg != clientPortArg):
-		CLIENT_PORT = clientPortArg
-		WORKER_PORT = workerPortArg
+		CLIENT_PORT = int(clientPortArg)
+		WORKER_PORT = int (workerPortArg)
 	else:
 		print(sys.argv)
 		print('Try again, port numbers must be different and must be in range [1024 - 65535].\nEnd of processing.')
 		sys.exit(0)
-	print(sys.argv)
 
 serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 serverSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 try:
 	serverSocket.bind((HOST, CLIENT_PORT))
 except socket.error as e:
-	serverSocket.bind((HOST,0))
-	if e.errno == errno.EADDRINUSE:
-		print("Port "+str(CLIENT_PORT)+" is already in use.")
-	CLIENT_PORT = serverSocket.getsockname()[1]
-	print('Using port '+str(CLIENT_PORT)+ ' for the clients.\n')
+	CLIENT_PORT = bindToRandomPort(serverSocket) 
+	print('The requested port was in already use. Using available port '+str(CLIENT_PORT)+ ' for the clients.')
 serverSocket.setblocking(0);
 serverSocket.listen()
 
@@ -45,14 +53,12 @@ workerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 try:
 	workerSocket.bind((HOST, WORKER_PORT))
 except socket.error as e:
-	workerSocket.bind((HOST,0))
-	if e.errno == errno.EADDRINUSE:
-		print("Port "+str(WORKER_PORT)+" is already in use.")
-	WORKER_PORT = workerSocket.getsockname()[1]
-	print('Using port '+str(WORKER_PORT)+ ' for the workers.\n')
+	WORKER_PORT = bindToRandomPort(workerSocket)
+	print('The requested port was in already use. Using port '+str(WORKER_PORT)+ ' for the workers.')
 workerSocket.setblocking(0);    
 workerSocket.listen()
 
+print('---\n')
 
 inputs = [ serverSocket , workerSocket ] # not transient
 outputs = []
@@ -89,12 +95,12 @@ def main():
 		except socket.timeout as e:
 			pass
 		except KeyboardInterrupt:
-			print("RIP")
+			print("End of Process.\n")
 			serverSocket.close();
 			workerSocket.close();
 			sys.exit(0)
 		except Exception as e:
-			print("Something happened... I guess...")
+			print("There was an error.\nEnd of Process\n")
 			print(e)
 			print(traceback.format_exc())
 			serverSocket.close();
@@ -113,44 +119,47 @@ def dealWithWorker(s):
 		data = s.recv(1024)
 		if data:
 			try:
-				data = data.decode('utf-8')
+				data = data.decode('utf-8', 'ignore')
 				data = data.strip()
 			
 				# 'done' or 'ready'
 				if data == 'ready':
-					print('message: '+data+' >> from %s' % (s.getpeername(),))
+					#print('message: '+data+' >> from %s' % (s.getpeername(),))
 					try:
 						if(len(jobsToAdd) > 0):
-							nextJob = (jobsToAdd.pop(0)).encode('utf-8')
+							nextJob = (jobsToAdd.pop(0)).encode('utf-8','ignore')
 							nextJobId = int((nextJob.split())[0])
 							myJobs[nextJobId][2] = 'IN PROGRESS'
+							print('> GET\n<\n')
 						else:	
-							nextJob = ('nothing').encode('utf-8')
+							nextJob = ('nothing').encode('utf-8', 'ignore')
 						s.send(nextJob)
 					except Exception as e:
-						print('Something went wrong while sending worker %s a job' % (s.getpeername(),))
-						print(e)
+						#print('Something went wrong while sending worker %s a job' % (s.getpeername(),))
+						#print(e)
 						pass
 				elif len(data) >= 2:
-					print('message recieved: '+data)
+					#print('message recieved: '+data)
 					splitData = data.split()
-					print('jobid = '+ splitData[0])
+					#print('jobid = '+ splitData[0])
 					jobId = int(splitData[0])
 					jobStatus = splitData[1].lower()
-					print('status: '+jobStatus)
+					#print('status: '+jobStatus)
 					if(jobStatus == 'completed' and jobId < len(myJobs) and jobId >= 0):
 						myJobs[jobId][2] = 'COMPLETED'
-						print('job' + str(jobId) +'completed')
+						print('> DONE ' + str(jobId) +'\n<\n')
 			except UnicodeDecodeError:
+				print('removing worker' % (s.getpeername(),))
 				s.close()
 				if s in myWorkers:
 					myWorkers.remove(s)
 		else:
+			print('removing worker')
 			s.close()
 			if s in myWorkers:
 				myWorkers.remove(s)
 	except ConnectionResetError:
-		print('worker disconnected, removing it from myWorkers')
+		print('removing worker')
 		s.close()
 		if s in myWorkers:
 			myWorkers.remove(s)
@@ -170,11 +179,11 @@ def dealWithClients(s):
 		data = s.recv(1024)
 		if data:
 			try:
-				data = data.decode('utf-8')
+				data = data.decode('utf-8','ignore')
 				commandTypeResult, resultID = resolveClientCommand(data) # was a new job command	
 				if(commandTypeResult == 0 and resultID >= 0):
 					print('> JOB '+myJobs[resultID][1]+'\n<')
-					s.send((str(resultID)+'\n').encode('utf-8'))
+					s.send((str(resultID)+'\n').encode('utf-8','ignore'))
 				
 					# add the job to the queue
 					thisJob = str(resultID) + ' ' + myJobs[resultID][1]
@@ -182,15 +191,18 @@ def dealWithClients(s):
 				elif(commandTypeResult == 1 and resultID >= 0 and resultID < len(myJobs)):
 					toSend = 'job '+ str(resultID) + ' is in state '+myJobs[resultID][2]+'\n'
 					print('> STATUS ' + str(resultID) +'\n<')
-					s.send((toSend).encode('utf-8'))
+					s.send((toSend).encode('utf-8','ignore'))
 			except UnicodeDecodeError:
+				print('Removing client' % (s.getpeername(),))
 				s.close()
 				if s in myClients:
 					myClients.remove(s)
 		else:
+			print('Removing client')
+			s.close()
 			myClients.remove(s)
 	except ConnectionResetError:
-		print('client disconnected, removing it from myClients')
+		print('Removing client')
 		s.close()
 		if s in myClients:
 			myClients.remove(s)
@@ -215,7 +227,7 @@ def resolveClientCommand(theCommand):
 			returnID = totalJobs
 			myJobs.append([returnID, theData,'WAITING'])
 			
-			print(myJobs)
+			#print(myJobs)
 			totalJobs+=1
 		elif(command.lower() == 'status' and len(theData) >= 2):
 			commandType = 1
@@ -227,9 +239,5 @@ def resolveClientCommand(theCommand):
 	return (commandType, returnID)
 
 main()
-
-
-
-
-
+	
 

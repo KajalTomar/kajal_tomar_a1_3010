@@ -16,7 +16,9 @@ if(len(sys.argv) < 4):
 else:
 	result = (sys.argv[1]).split(':')
 	if(len(result) != 2):
-			print(sys.argv[1]+'is invalid')
+			print(sys.argv[1]+' is invalid. Please enter the [workQueueIPAndPort]')
+			print('For example: grouse.cs.umanitoba.ca:8001')
+			sys.exit(0)
 	else:
 		serverHost = result[0]
 		serverPortArg =	int(result[1])
@@ -100,6 +102,7 @@ def connectToServer():
 			time.sleep(1)
 			pass
 		except Exception as e:  
+			print(e)
 			print( 'An error occured while trying to connect to the server')
 			sys.exit(0)
 
@@ -118,14 +121,14 @@ def doWork(theData):
 	if (len(theData) >= 2):
 		data = theData.split(' ', 1)			
 		jobID = int(data[0])
-		textPart = data[1]
+		textPart = data[1].split()
 		
 		print('starting job '+str(jobID))
-		for c in textPart:				
-			if c != ' ':
-				print(c)
+		for word in textPart:				
+			if len(word) > 0:
+				print(word)
 				try:
-					outputSocket.sendto(c.encode('utf-8'),(LOCAL_IP, OUTPUT_PORT))
+					outputSocket.sendto(word.encode('utf-8'),(LOCAL_IP, OUTPUT_PORT))
 				except Exception as e:
 					print(e)
 					pass
