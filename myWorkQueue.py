@@ -1,19 +1,31 @@
-#!/usr/bin/python3
+# --------------------------------------------------------------------
+# NAME		        : Kajal Tomar
+# STUDENT NUMBER	: 7793306
+# COURSE		    : COMP 3010
+# INSTRUCTOR	    : Robert Guderian
+# ASSIGNMENT	    : Assignment 1
+#
+# REMARKS: 	This file implements the job queueue 
+#			that accepts new jobs and issues the jobs to workers
+# --------------------------------------------------------------------
 
+#!/usr/bin/python3
 import errno
 import socket
 import sys
 import select
-from queue import Queue, Empty
-
 
 HOST = ''                 
-print(socket.gethostname())
 CLIENT_PORT = 0            
 WORKER_PORT = 0
-print("listening on interface " + HOST)
 
-
+# --------------------------------------------------------
+# bindToRandomPort(socket)
+#
+# Purpose: binds the socket to an available port
+# Parameter: socket to bind
+# Returns: the port number that the socket is bound to
+# --------------------------------------------------------
 def bindToRandomPort(s):
 	result = -1
 
@@ -24,6 +36,7 @@ def bindToRandomPort(s):
 		except socket.error as e:
 			pass
 
+# Confirm that arguments are valid. If not print instructions for acceptable arguments then end the process.
 if(len(sys.argv) < 3):
 	print('Please use the correct command: python3 myQueue.py  [clientPort] [workerPort]\nEnd of processing.')
 	sys.exit(0)
@@ -38,16 +51,21 @@ else:
 		print('Try again, port numbers must be different and must be in range [1024 - 65535].\nEnd of processing.')
 		sys.exit(0)
 
-serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-serverSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-try:
-	serverSocket.bind((HOST, CLIENT_PORT))
-except socket.error as e:
-	CLIENT_PORT = bindToRandomPort(serverSocket) 
-	print('The requested port was in already use. Using available port '+str(CLIENT_PORT)+ ' for the clients.')
-serverSocket.setblocking(0);
-serverSocket.listen()
 
+# Create, bind and listen to 2 TCP sockets (one for clients, one for workers)
+
+# set up the socket for the clients
+clientSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+clientSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+	clientSocket.bind((HOST, CLIENT_PORT))
+except socket.error as e:
+	CLIENT_PORT = bindToRandomPort(clientSocket)  
+	print('The requested port was in already use. Using available port '+str(CLIENT_PORT)+ ' for the clients.')
+clientSocket.setblocking(0);
+clientSocket.listen()
+
+# set up the socket for the workers
 workerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 workerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 try:
@@ -58,23 +76,36 @@ except socket.error as e:
 workerSocket.setblocking(0);    
 workerSocket.listen()
 
-print('---\n')
-
-inputs = [ serverSocket , workerSocket ] # not transient
+# the variables to hold socket and job info
+inputs = [ clientSocket , workerSocket ] 
 outputs = []
 
-jobsToAdd = []
+jobsToAdd = [] # will act as a queue for jobs that need to be processed
 
-myClients = []
+myClients = [] 
 myWorkers = []
 
-myJobs = [] # will be an array [jobID, jobmessage, jobstatus]
+myJobs = [] # will hold the state of all the jobs [jobID, jobmessage, jobstatus]
 totalJobs = 0
 
-def main():
-	global i
+# print meta data before beginning 
+print('-------------------------------------------')
+print('> [clientPort] [workerPort]')
+print('> ['+str(CLIENT_PORT)+'] ['+str(WORKER_PORT)+']')
+print('> listening on interface: '+ socket.gethostname())
+print('-------------------------------------------\n')
+
+
+# --------------------------------------------------------
+# runJobQueue
+#
+# Purpose: 	Uses `select` to monitor sockets. Call approporiate
+#			function that corresponds with the socket.
+# --------------------------------------------------------
+def runJobQueue():
 	while True:
 		try:
+			# uses `select`, track all the TCP clients in respective lists
 			readable, writeable, exceptions = select.select(
 				inputs + myClients + myWorkers,
 				outputs,
@@ -83,37 +114,54 @@ def main():
 				)
 			
 			for s in readable:
-				if s is serverSocket:
-					dealWithServerSocket(s) # new client
+				if s is clientSocket:
+					dealWithClientSocket(s) # new client
 				if s is workerSocket:
 					dealWithWorkerSocket(s) # new worker
 				elif s in myClients:
-					dealWithClients(s)
+					dealWithClients(s) # client sent message
 				elif s in myWorkers:
-					dealWithWorker(s)
+					dealWithWorker(s) # worker sent message
 			
 		except socket.timeout as e:
 			pass
-		except KeyboardInterrupt:
+		except KeyboardInterrupt: 
 			print("End of Process.\n")
-			serverSocket.close();
+			clientSocket.close();
 			workerSocket.close();
 			sys.exit(0)
 		except Exception as e:
-			print("There was an error.\nEnd of Process\n")
-			print(e)
-			print(traceback.format_exc())
-			serverSocket.close();
+			print("There was an error with myWorkQueue.\nEnd of Process\n")
+			#print(e)
+			#print(traceback.format_exc())
+			clientSocket.close();
 			workerSocket.close();
 			sys.exit(0)
 
+
+# --------------------------------------------------------
+# dealWithWorkerSocket(socket)
+#
+# Purpose: 	Accepts the socket's connection and adds it to 
+#			the list of workers
+# Parameter: socket that is trying to connect
+# --------------------------------------------------------
 def dealWithWorkerSocket(s):
 	connection, workerAddress = workerSocket.accept()	
 	print('Adding worker ', workerAddress)
 	connection.setblocking(0)
 	myWorkers.append(connection)
-	# give the connection a queue for the data we want to send
 
+# --------------------------------------------------------
+# dealWithWorker(socket)
+#
+# Purpose: 	Recieves data from a worker socket. If the 
+#			worker is ready for a job, then assign it one
+#			from the job queue.
+#			If the worker is sended a 'completed job' status,
+#			update our list of all jobs with the new state.
+# Parameter: socket that has sent a message
+# --------------------------------------------------------
 def dealWithWorker(s):
 	try:
 		data = s.recv(1024)
@@ -122,38 +170,35 @@ def dealWithWorker(s):
 				data = data.decode('utf-8', 'ignore')
 				data = data.strip()
 			
-				# 'done' or 'ready'
+				# valid message will be 'completed jobID' or 'ready' 
 				if data == 'ready':
-					#print('message: '+data+' >> from %s' % (s.getpeername(),))
+					# worker is ready for a job
 					try:
-						if(len(jobsToAdd) > 0):
-							nextJob = (jobsToAdd.pop(0)).encode('utf-8','ignore')
+						if(len(jobsToAdd) > 0): # if there is a job
+							nextJob = (jobsToAdd.pop(0)).encode('utf-8','ignore') # pop from the queue so that each jobs is issued to exactly 1 worker
 							nextJobId = int((nextJob.split())[0])
 							myJobs[nextJobId][2] = 'IN PROGRESS'
 							print('> GET\n<\n')
-						else:	
+						else:	# otherwise send 'nothing'
 							nextJob = ('nothing').encode('utf-8', 'ignore')
 						s.send(nextJob)
 					except Exception as e:
-						#print('Something went wrong while sending worker %s a job' % (s.getpeername(),))
-						#print(e)
 						pass
 				elif len(data) >= 2:
-					#print('message recieved: '+data)
 					splitData = data.split()
-					#print('jobid = '+ splitData[0])
 					jobId = int(splitData[0])
 					jobStatus = splitData[1].lower()
-					#print('status: '+jobStatus)
-					if(jobStatus == 'completed' and jobId < len(myJobs) and jobId >= 0):
+					# the worker completed a job, update that job's status to 'done'
+					if(jobStatus == 'completed' and jobId < len(myJobs) and jobId >= 0): 
 						myJobs[jobId][2] = 'COMPLETED'
 						print('> DONE ' + str(jobId) +'\n<\n')
 			except UnicodeDecodeError:
+				# assume we should remove the worker if the data sent is bad
 				print('removing worker' % (s.getpeername(),))
 				s.close()
 				if s in myWorkers:
 					myWorkers.remove(s)
-		else:
+		else: # remove the worker if they didn't send any data
 			print('removing worker')
 			s.close()
 			if s in myWorkers:
@@ -164,13 +209,28 @@ def dealWithWorker(s):
 		if s in myWorkers:
 			myWorkers.remove(s)
 
-def dealWithServerSocket(s):
+# --------------------------------------------------------
+# dealWithClientSocket(socket)
+#
+# Purpose: 	Accepts the socket's connection and adds it to 
+#			the list of clients
+# Parameter: socket that is trying to connect
+# --------------------------------------------------------
+def dealWithClientSocket(s):
 	# new client
-	connection, clientAddress = serverSocket.accept()
+	connection, clientAddress = clientSocket.accept()
 	print('Adding client ', clientAddress)
 	connection.setblocking(0)
 	myClients.append(connection)
 
+# --------------------------------------------------------
+# dealWithClient(socket)
+#
+# Purpose: 	Read's the socket's message to see if it's adding
+#			a job or asking for the status. If it's a job
+#			add it to the job queue.
+# Parameter: socket that sent the message
+# --------------------------------------------------------
 def dealWithClients(s):
 	global jobsToAdd
 
@@ -180,24 +240,33 @@ def dealWithClients(s):
 		if data:
 			try:
 				data = data.decode('utf-8','ignore')
-				commandTypeResult, resultID = resolveClientCommand(data) # was a new job command	
-				if(commandTypeResult == 0 and resultID >= 0):
+				commandTypeResult, resultID = resolveClientCommand(data) # check what the command was
+				
+				if(commandTypeResult == 0 and resultID >= 0): # handle JOB command 
 					print('> JOB '+myJobs[resultID][1]+'\n<')
 					s.send((str(resultID)+'\n').encode('utf-8','ignore'))
 				
 					# add the job to the queue
 					thisJob = str(resultID) + ' ' + myJobs[resultID][1]
 					jobsToAdd.append(thisJob)
-				elif(commandTypeResult == 1 and resultID >= 0 and resultID < len(myJobs)):
-					toSend = 'job '+ str(resultID) + ' is in state '+myJobs[resultID][2]+'\n'
-					print('> STATUS ' + str(resultID) +'\n<')
+
+				elif(commandTypeResult == 1): # handle STATUS command
+
+					if (resultID >= 0 and resultID < len(myJobs)): # if jobID is valid, send it's status
+						toSend = 'job '+ str(resultID) + ' is in state '+myJobs[resultID][2]+'\n'
+						print('> STATUS ' + str(resultID) +'\n<')
+
+					else: # if the jobID is not valid, send a message notifying the client
+						toSend = 'job '+str(resultID)+' does not exist\n'
 					s.send((toSend).encode('utf-8','ignore'))
 			except UnicodeDecodeError:
+				# remove the client if they send bad message
 				print('Removing client' % (s.getpeername(),))
 				s.close()
 				if s in myClients:
 					myClients.remove(s)
 		else:
+			# remove the client if they didn't send a message
 			print('Removing client')
 			s.close()
 			myClients.remove(s)
@@ -207,15 +276,26 @@ def dealWithClients(s):
 		if s in myClients:
 			myClients.remove(s)
 
+# --------------------------------------------------------
+# resolveClientCommand(the command)
+#
+# Purpose: 	parses the data to see if it was a job or a 
+#			status command. If its a job then add it to the
+# 			list of all jobs.
+# Parameter: socket that is trying to connect
+# Returns:	(-1,-1) if command was invalid
+#			(0, jobID) if the command was 'JOB'  
+#			(1, jobID) if the command was 'STATUS'
+# --------------------------------------------------------
 def resolveClientCommand(theCommand):
 	global totalJobs
 	command = ""
-	returnID = -1
+	returnID = -1 # default
 	commandType = -1 # not valid command
 
-	if(len(theCommand) > 0):
+	if(len(theCommand) > 1):
 		theData = theCommand.split(' ', 1)
-		command = str(theData[0])
+		command = str(theData[0])  
 
 		if(command.lower() == 'job' and len(theData) >= 2):
 			# create job array and add it to the array of jobs 
@@ -238,6 +318,6 @@ def resolveClientCommand(theCommand):
 
 	return (commandType, returnID)
 
-main()
+runJobQueue() # to run the job queue
 	
 
