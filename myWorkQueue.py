@@ -38,7 +38,7 @@ def bindToRandomPort(s):
 
 # Confirm that arguments are valid. If not print instructions for acceptable arguments then end the process.
 if(len(sys.argv) < 3):
-	print('Please use the correct command: python3 myQueue.py  [clientPort] [workerPort]\nEnd of processing.')
+	print('Please use the correct command: python3 myWorkQueue.py  [clientPort] [workerPort]\nEnd of processing.')
 	sys.exit(0)
 else:
 	clientPortArg = int(sys.argv[1].strip())
@@ -105,7 +105,7 @@ print('-------------------------------------------\n')
 def runJobQueue():
 	while True:
 		try:
-			# uses `select`, track all the TCP clients in respective lists
+			# uses `select`, track all the TCP clients in: respective lists
 			readable, writeable, exceptions = select.select(
 				inputs + myClients + myWorkers,
 				outputs,

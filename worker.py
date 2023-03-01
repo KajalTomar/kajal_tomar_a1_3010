@@ -24,7 +24,7 @@ LOG_PORT = 0
 
 # Confirm that arguments are valid. If not print instructions for acceptable arguments then end the process.
 if(len(sys.argv) < 4):
-	print('Please use the correct command: python3 workerpy [workQueueIPAndPort] [outputPort] [syslogPort]\nEnd of processing.')
+	print('Please use the correct command: python3 worker.py [workQueueIPAndPort] [outputPort] [syslogPort]\nEnd of processing.')
 	sys.exit(0)
 else:
 	result = (sys.argv[1]).split(':')
