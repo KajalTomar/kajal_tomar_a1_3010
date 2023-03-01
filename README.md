@@ -1,7 +1,7 @@
 Instructions to run assignment 1 files 
 
 
-** These instructions are for computers in the aviary lab **
+**These instructions are for computers in the aviary lab**
 
 # How to run the the message queue file (myWorkQueue.py)
 1. Start in the assignment directory. 
