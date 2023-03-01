@@ -1,4 +1,4 @@
-#Instructions to run assignment 1 files 
+# Instructions to run assignment 1 files 
 
 
 **These instructions are for computers in the aviary lab**
