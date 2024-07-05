@@ -1,10 +1,4 @@
 # --------------------------------------------------------------------
-# NAME		        : Kajal Tomar
-# STUDENT NUMBER	: 7793306
-# COURSE		    : COMP 3010
-# INSTRUCTOR	    : Robert Guderian
-# ASSIGNMENT	    : Assignment 1
-#
 # REMARKS: 	This file implements the worker. Workers fetch jobs from 
 #			the work queue and “do the work”. 
 # --------------------------------------------------------------------
